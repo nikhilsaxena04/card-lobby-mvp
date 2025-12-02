@@ -1,40 +1,52 @@
-// pages/api/socket.js - FINAL VERSION WITH SESSION RECOVERY
-
+// pages/api/socket.js - FINAL STABLE SERVER CODE
 import { Server } from 'socket.io';
 import { init as initDb, getDb } from '../../lib/db';
-import { generateCards, ATTRS, CARDS_PER_PLAYER, MAX_PLAYERS } from '../../lib/game';
+import GameLogic from '../../lib/game'; 
+const { generateCards, ATTRS, CARDS_PER_PLAYER, MAX_PLAYERS } = GameLogic;
 
 // --- Bot Turn Function ---
 async function runBotTurn(io, lobbyId){
-    const db = await getDb(); const l = db.data.lobbies[lobbyId]; if (!l || l.state !== 'playing') return; 
-    const cur = l.players[l.currentPlayerIndex]; if (!cur || !cur.isBot) return; 
-    const top = cur.hand[0]; if (!top) return; 
+    const db = await getDb(); const l = db.data.lobbies[lobbyId]; 
+    if (!l || l.state !== 'playing') return; 
+    
+    const cur = l.players[l.currentPlayerIndex]; 
+    if (!cur || !cur.isBot) return; 
+    
+    const top = cur.hand[0]; 
+    if (!top) return; 
     
     let bestAttr = ATTRS[0], bestVal = top.stats[bestAttr]; 
-    for (const a of ATTRS) if (top.stats[a] > bestVal){ bestVal = top.stats[a]; bestAttr = a; }
+    for (const a of ATTRS) if (top.stats[a] > bestVal){ bestAttr = a; } 
     
-    // Discard top cards
+    // Play the turn
     const reveals = l.players.map(p => p.hand && p.hand.length? p.hand[0] : null); 
-    const topCards = l.players.map(p => p.hand && p.hand.length? p.hand.shift() : null);
+    const topCards = l.players.map(p => p.hand && p.hand.length? p.hand.shift() : null); 
     
     let best = -Infinity, winnerIndex=-1; 
     for (let i=0;i<l.players.length;i++){ const c = topCards[i]; if (!c) continue; const v = c.stats[bestAttr] || 0; if (v > best){ best = v; winnerIndex = i; } }
     
-    // SCORING
+    // Score
     l.players[winnerIndex].totalWins = (l.players[winnerIndex].totalWins||0)+1;
     
-    l.currentPlayerIndex = winnerIndex; l.round++; l.history.push({ round: l.round-1, attr: bestAttr, reveals: topCards, winnerId: l.players[winnerIndex].id });
+    // Update History
+    l.history.push({ round: l.round, attr: bestAttr, reveals: topCards, winnerId: l.players[winnerIndex].id });
+    l.currentPlayerIndex = winnerIndex; 
     
-    // Check for Game End
+    // --- GAME END CHECK ---
     const cardsRemaining = l.players.reduce((sum, p) => sum + (p.hand ? p.hand.length : 0), 0);
+    
     if (cardsRemaining === 0) {
         l.state = 'finished';
-        l.winner = l.players.reduce((best, current) => current.totalWins > (best?.totalWins || 0) ? current : best, null);
+        l.winner = l.players.reduce((prev, current) => (prev.totalWins > current.totalWins) ? prev : current);
+    } else {
+        l.round++; 
     }
     
-    await db.write(); io.to(lobbyId).emit('roundResult', { attr: bestAttr, reveals: topCards, winnerId: l.players[winnerIndex].id, lobby: l });
+    await db.write(); 
+    io.to(lobbyId).emit('roundResult', { attr: bestAttr, reveals: topCards, winnerId: l.players[winnerIndex].id, lobby: l });
+    
     const next = l.players[l.currentPlayerIndex]; 
-    if (next && next.isBot && l.state === 'playing') setTimeout(()=> runBotTurn(io, lobbyId), 500);
+    if (next && next.isBot && l.state === 'playing') setTimeout(()=> runBotTurn(io, lobbyId), 600);
 }
 
 export default async function handler(req, res) {
@@ -52,31 +64,27 @@ export default async function handler(req, res) {
         const cached = db.data.apiCache[theme?.toLowerCase()];
         const cards = await generateCards(theme || 'One Piece', cached);
         if (!cached) db.data.apiCache[theme?.toLowerCase()] = null;
-        const lobby = { id, theme, deck: cards, players: [], maxPlayers: MAX_PLAYERS, state:'waiting', currentPlayerIndex:0, round:0, history:[] };
+        const lobby = { id, theme, deck: cards, players: [], maxPlayers: MAX_PLAYERS, state:'waiting', currentPlayerIndex:0, round:1, history:[] };
         lobby.players.push({ id: Math.random().toString(36).slice(2,8), name: name || 'Host', socketId: socket.id, isBot:false, hand:[], wins: {}, totalWins:0 });
         db.data.lobbies[id] = lobby; await db.write();
         socket.join(id); cb({ ok:true, lobby }); io.to(id).emit('lobbyUpdate', lobby);
       });
 
-      // --- SESSION RECOVERY LOGIC IN JOIN ---
+      // SESSION RECOVERY LOGIC IN JOIN
       socket.on('joinLobby', async ({ lobbyId, name }, cb) => {
         const db = await getDb(); const l = db.data.lobbies[lobbyId];
         if (!l) return cb({ ok:false, err:'no lobby' });
 
-        // 1. Try to find an existing player by Name (Session Recovery)
         const existingPlayer = l.players.find(p => p.name === name);
         if (existingPlayer) {
-             console.log(`Recovering session for ${name}`);
-             existingPlayer.socketId = socket.id; // Update socket ID to new connection
+             existingPlayer.socketId = socket.id; 
              socket.join(lobbyId); 
              cb({ ok:true, lobby: l }); 
              io.to(lobbyId).emit('lobbyUpdate', l);
              return;
         }
 
-        // 2. If new player, check constraints
         if (l.players.length >= l.maxPlayers) return cb({ ok:false, err:'full' });
-        // Optional: Block new joins if game is already playing (unless you want spectators)
         if (l.state !== 'waiting') return cb({ ok:false, err:'game in progress' });
 
         const player = { id: Math.random().toString(36).slice(2,8), name: name || 'Player', socketId: socket.id, isBot:false, hand:[], wins: {}, totalWins:0 };
@@ -114,12 +122,16 @@ export default async function handler(req, res) {
           
           l.players[winnerIndex].totalWins = (l.players[winnerIndex].totalWins||0)+1;
 
-          l.currentPlayerIndex = winnerIndex; l.round++; l.history.push({ round: l.round-1, attr, reveals: topCards, winnerId: l.players[winnerIndex].id });
+          l.history.push({ round: l.round, attr, reveals: topCards, winnerId: l.players[winnerIndex].id });
+          l.currentPlayerIndex = winnerIndex; 
           
           const cardsRemaining = l.players.reduce((sum, p) => sum + (p.hand ? p.hand.length : 0), 0);
+          
           if (cardsRemaining === 0) {
               l.state = 'finished';
-              l.winner = l.players.reduce((best, current) => current.totalWins > (best?.totalWins || 0) ? current : best, null);
+              l.winner = l.players.reduce((prev, current) => (prev.totalWins > current.totalWins) ? prev : current);
+          } else {
+              l.round++;
           }
           
           await db.write(); io.to(lobbyId).emit('roundResult', { attr, reveals: topCards, winnerId: l.players[winnerIndex].id, lobby: l });
@@ -128,21 +140,14 @@ export default async function handler(req, res) {
           cb({ ok:true, lobby: l });
       });
 
-      // --- PROTECTIVE LEAVE LOGIC ---
       socket.on('leaveLobby', async ({ lobbyId }, cb) => {
         const db = await getDb(); const l = db.data.lobbies[lobbyId]; if (!l) return cb({ ok:false }); 
-        
-        // FIX: Only remove players if the game is waiting. 
-        // If playing, keep them in the array so they can reconnect!
         if (l.state === 'waiting') {
             l.players = l.players.filter(p => p.socketId !== socket.id); 
         }
-        
-        // Only delete the lobby if it's truly empty AND waiting
         if (l.players.length === 0 && l.state === 'waiting') {
              delete db.data.lobbies[lobbyId];
         }
-        
         await db.write(); socket.leave(lobbyId); io.to(lobbyId).emit('lobbyUpdate', l); cb({ ok:true });
       });
 
