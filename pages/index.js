@@ -6,11 +6,9 @@ import { motion } from 'framer-motion';
 let socket;
 
 export default function Home() {
-  const [connected, setConnected] = useState(false);
   const [lobby, setLobby] = useState(null);
-  const [name, setName] = useState('Player');
+  const [name, setName] = useState('');
   const [theme, setTheme] = useState('One Piece');
-  const [logs, setLogs] = useState([]);
   const mySocket = useRef(null);
 
   useEffect(() => {
@@ -21,7 +19,7 @@ export default function Home() {
     }
 
     socket = io();
-    socket.on('connect', () => { setConnected(true); mySocket.current = socket.id; });
+    socket.on('connect', () => { mySocket.current = socket.id; });
     socket.on('lobbyUpdate', l => { setLobby(l); });
     socket.on('gameStarted', l => {
       setLobby(l);
@@ -40,9 +38,8 @@ export default function Home() {
   const start = () => socket.emit('startGame', { lobbyId: lobby.id }, res => { if (!res.ok) alert(res.err); });
   const setLobbyId = (id) => setLobby(l => ({ ...l, id: id }));
 
-  const maxPlayers = 4;
   const players = lobby ? lobby.players : [];
-  const emptySlots = Array(maxPlayers - players.length).fill(null);
+  const emptySlots = Array(4 - players.length).fill(null);
 
   return (
     <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden font-sans">
@@ -77,14 +74,9 @@ export default function Home() {
 
           <div className="pt-2 space-y-4">
              <button onClick={create} disabled={!name || !theme || !!lobby?.id} className={`w-full p-5 rounded-xl font-bold text-xl tracking-widest uppercase transition-all duration-300 ${!name || !theme || !!lobby?.id ? 'opacity-30 bg-slate-800' : 'btn-primary hover:scale-[1.02]'}`}>Create New Lobby</button>
-             
-             <div className="flex items-center gap-4">
-               <div className="h-px bg-slate-700 flex-1"></div><span className="text-slate-500 text-xs uppercase tracking-widest font-bold">OR</span><div className="h-px bg-slate-700 flex-1"></div>
-             </div>
-
              <div className="flex gap-3 h-14">
                <input value={lobby?.id || ''} onChange={e => setLobbyId(e.target.value.toUpperCase())} placeholder="LOBBY CODE" className="glass-input flex-1 h-full px-4 rounded-xl text-center font-mono text-xl font-bold tracking-widest uppercase border-2 border-transparent focus:border-blue-500" />
-               <button onClick={join} disabled={!!lobby?.id && lobby.players.length > 0} className="h-full px-8 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 text-white rounded-xl text-sm font-bold tracking-wider transition-all">JOIN</button>
+               <button onClick={join} className="h-full px-8 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 text-white rounded-xl text-sm font-bold tracking-wider transition-all">JOIN</button>
              </div>
           </div>
           
@@ -100,28 +92,19 @@ export default function Home() {
         </div>
 
         <div className="h-full min-h-[500px] bg-black/40 rounded-3xl p-8 border border-white/5 relative overflow-hidden backdrop-blur-sm flex flex-col">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-50" />
           <div className="flex justify-between items-end mb-8 border-b border-white/5 pb-4">
-            <div><h3 className="font-bold text-2xl text-white">Lobby List</h3><p className="text-slate-400 text-xs mt-1">Waiting for challengers...</p></div>
-            <span className="text-sm font-mono bg-white/5 px-3 py-1 rounded-full text-indigo-300 border border-white/10">{players.length} / {maxPlayers}</span>
+            <div><h3 className="font-bold text-2xl text-white">Lobby List</h3></div>
+            <span className="text-sm font-mono bg-white/5 px-3 py-1 rounded-full text-indigo-300 border border-white/10">{players.length} / 4</span>
           </div>
-
           <div className="space-y-4 flex-1">
             {players.map((p, i) => (
-              <motion.div key={p.id || i} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.1 }} className="flex items-center gap-5 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all group">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl shadow-lg ${p.isBot ? 'bg-gradient-to-br from-yellow-600 to-yellow-800 text-yellow-100' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'}`}>{p.name[0]}</div>
-                <div className="flex-1">
-                  <div className="font-bold text-white text-lg flex items-center gap-2">{p.name} {p.isBot && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded border border-yellow-500/20 uppercase tracking-wider">BOT</span>} {p.socketId === mySocket.current && <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/20 uppercase tracking-wider">YOU</span>}</div>
-                  <div className="text-xs text-slate-500 font-mono group-hover:text-slate-400 transition-colors">Ready to battle</div>
-                </div>
-                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.8)] animate-pulse" />
-              </motion.div>
+              <div key={i} className="flex items-center gap-5 p-4 rounded-2xl bg-white/5 border border-white/5">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">{p.name[0]}</div>
+                <div className="font-bold text-white text-lg">{p.name} {p.isBot && <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">BOT</span>}</div>
+              </div>
             ))}
             {emptySlots.map((_, i) => (
-              <div key={`empty-${i}`} className="flex items-center gap-5 p-4 rounded-2xl border-2 border-dashed border-white/5 opacity-40">
-                <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-slate-600 font-bold text-xl">+</div>
-                <div className="text-sm font-medium text-slate-500 uppercase tracking-wider">Open Slot</div>
-              </div>
+              <div key={i} className="flex items-center gap-5 p-4 rounded-2xl border-2 border-dashed border-white/5 opacity-40"><div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center">+</div><div className="text-sm font-medium text-slate-500 uppercase tracking-wider">Open Slot</div></div>
             ))}
           </div>
         </div>

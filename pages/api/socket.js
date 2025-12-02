@@ -1,10 +1,9 @@
-// pages/api/socket.js - FINAL STABLE SERVER CODE
+// pages/api/socket.js - FINAL STABLE
 import { Server } from 'socket.io';
 import { init as initDb, getDb } from '../../lib/db';
-import GameLogic from '../../lib/game'; 
-const { generateCards, ATTRS, CARDS_PER_PLAYER, MAX_PLAYERS } = GameLogic;
+// FIXED IMPORT:
+import { generateCards, ATTRS, CARDS_PER_PLAYER, MAX_PLAYERS } from '../../lib/game';
 
-// --- Bot Turn Function ---
 async function runBotTurn(io, lobbyId){
     const db = await getDb(); const l = db.data.lobbies[lobbyId]; 
     if (!l || l.state !== 'playing') return; 
@@ -16,23 +15,19 @@ async function runBotTurn(io, lobbyId){
     if (!top) return; 
     
     let bestAttr = ATTRS[0], bestVal = top.stats[bestAttr]; 
-    for (const a of ATTRS) if (top.stats[a] > bestVal){ bestAttr = a; } 
+    for (const a of ATTRS) if (top.stats[a] > bestVal){ bestAttr = a; }
     
-    // Play the turn
     const reveals = l.players.map(p => p.hand && p.hand.length? p.hand[0] : null); 
     const topCards = l.players.map(p => p.hand && p.hand.length? p.hand.shift() : null); 
     
     let best = -Infinity, winnerIndex=-1; 
     for (let i=0;i<l.players.length;i++){ const c = topCards[i]; if (!c) continue; const v = c.stats[bestAttr] || 0; if (v > best){ best = v; winnerIndex = i; } }
     
-    // Score
     l.players[winnerIndex].totalWins = (l.players[winnerIndex].totalWins||0)+1;
     
-    // Update History
     l.history.push({ round: l.round, attr: bestAttr, reveals: topCards, winnerId: l.players[winnerIndex].id });
     l.currentPlayerIndex = winnerIndex; 
     
-    // --- GAME END CHECK ---
     const cardsRemaining = l.players.reduce((sum, p) => sum + (p.hand ? p.hand.length : 0), 0);
     
     if (cardsRemaining === 0) {
@@ -70,7 +65,6 @@ export default async function handler(req, res) {
         socket.join(id); cb({ ok:true, lobby }); io.to(id).emit('lobbyUpdate', lobby);
       });
 
-      // SESSION RECOVERY LOGIC IN JOIN
       socket.on('joinLobby', async ({ lobbyId, name }, cb) => {
         const db = await getDb(); const l = db.data.lobbies[lobbyId];
         if (!l) return cb({ ok:false, err:'no lobby' });
